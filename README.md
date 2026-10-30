@@ -15,9 +15,45 @@ import `gi`, the script restarts itself with `/usr/bin/python3`, preserving all
 arguments. This also supports `python wake.py` inside an activated virtual
 environment, even when its interpreter is a symlink to the system Python.
 
+## Setup and use
+
+Run setup as the logged-in desktop user, without `sudo` in front of Make:
+
 ```bash
-cd /home/sentice/sentice_admin/system/splashtop-wake
-./wake.py
+cd /path/to/splashtop-wake
+make setup
+make cron-status
+make run
+```
+
+This works from either `~/dev/splashtop-wake` or the `system/splashtop-wake`
+directory in the parent repository. The checkout where you run setup becomes the
+one used by cron. Install Make first if needed: `sudo apt-get install make`.
+
+`setup.sh` checks `/usr/bin/python3` and GNOME's PyGObject bindings. On
+Debian/Ubuntu it installs missing `python3`, `python3-gi`, and
+`gir1.2-glib-2.0` packages, plus the required cron/utility packages when missing.
+It uses `sudo` for system packages and to enable/start `cron.service` when needed
+on systemd machines. The crontab itself always belongs to the desktop user.
+No pip packages or virtual environment are needed: GNOME bindings come from the
+system Python. Other distributions require equivalent system packages and a
+running cron daemon; automatic package/service setup targets Debian/Ubuntu.
+
+For individual setup steps:
+
+```bash
+make setup-python  # Check/install system Python and GNOME bindings only
+make install-cron  # Check dependencies and install/update the user cron job
+make remove-cron   # Remove the wake job while preserving unrelated jobs
+```
+
+You can also run `bash setup.sh`, `bash setup.sh python`, or
+`bash setup.sh cron` directly. `make help` lists the available commands.
+
+For a manual wake without installing a cron job:
+
+```bash
+/usr/bin/python3 wake.py
 # Also works inside an activated virtual environment:
 python wake.py
 ```
@@ -40,13 +76,23 @@ silently when the user session bus is absent or the display is already awake.
 Wake attempts and errors go to the system journal under `splashtop-wake`; the
 wrapper creates no accumulating log file or cron email output.
 
-Installed in user `sentice`'s crontab:
+`make setup` or `make install-cron` installs an entry with the current checkout's
+absolute path, for example:
 
 ```cron
-* * * * * /home/sentice/sentice_admin/system/splashtop-wake/wake-cron.sh
+* * * * * /bin/sh /home/you/dev/splashtop-wake/wake-cron.sh # managed-by: splashtop-wake
 ```
 
-Inspect it with `crontab -l`; edit or remove the line with `crontab -e`.
+Repeated setup keeps exactly one wake job. Running it from the other checkout
+moves that job to the other path. Existing every-minute `splashtop-wake/wake-cron.sh`
+entries from the original manual installation are migrated to the managed entry;
+unrelated jobs, comments, and environment settings are preserved. Paths with
+spaces or percent signs are quoted/escaped for cron. A failed crontab read stops
+setup without overwriting the existing schedule.
+
+Inspect the wake entry with `make cron-status`, or the full schedule with
+`crontab -l`. Remove the wake entry with `make remove-cron`; `crontab -e`
+also remains available for manual edits.
 Read results with `journalctl -t splashtop-wake`. The job wakes a sleeping
 display on the next minute tick while GNOME is running. It does not boot or
 resume a suspended computer; cron cannot run while the computer is suspended.
@@ -64,5 +110,9 @@ The script reproduces the native input/display sequence verified in this session
 its readiness check confirms local display availability and lock state. Splashtop
 still handles the remote connection and screen-sharing permissions.
 
-Run the isolated tests with `/usr/bin/python3 -m unittest discover -s . -p 'test_*.py'`.
-They use a typed desktop fake and make no real D-Bus, display, or input calls.
+Run the isolated tests with `make test`, or
+`/usr/bin/python3 -B -m unittest discover -s . -p 'test_*.py' -v`.
+They use desktop/crontab fakes and make no real D-Bus, display, input, or crontab
+changes. Cron tests cover repeated installation, migration between checkouts,
+legacy entries, preservation of other jobs, safe paths, removal, and read/write
+failures.
